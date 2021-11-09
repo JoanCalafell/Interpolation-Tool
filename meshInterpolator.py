@@ -107,28 +107,29 @@ def Interpolate(smesh,tpoints,sfields):
 	tfield_L = []
 
 	mask = smesh.boundingBox.areinside(tpoints)
-	owned_points = np.where(mask==True)[0]
+	bounded_points = np.where(mask==True)[0]
 
-	print("rank=",mpi_rank," num smesh points=",len(smesh.xyz)," num owned=",len(owned_points),flush=True)
+	print("rank=",mpi_rank," num smesh points=",len(smesh.xyz)," num bounded=",len(bounded_points),flush=True)
 	mpi_comm.Barrier()
 
-	owned_points_L=len(owned_points)
-	owned_points_MAX =mpi_comm.allreduce(owned_points_L,op=MPI.MAX)
-	if mpi_rank==0: owned_points_L=1e14
-	owned_points_MIN =mpi_comm.allreduce(owned_points_L,op=MPI.MIN)
-	if mpi_rank==0: owned_points_L=0
-	owned_points_TOT =mpi_comm.allreduce(owned_points_L,op=MPI.SUM)
+	bounded_points_L=len(bounded_points)
+	bounded_points_MAX =mpi_comm.allreduce(bounded_points_L,op=MPI.MAX)
+	if mpi_rank==0: bounded_points_L=1e14
+	bounded_points_MIN =mpi_comm.allreduce(bounded_points_L,op=MPI.MIN)
+	if mpi_rank==0: bounded_points_L=0
+	bounded_points_TOT =mpi_comm.allreduce(bounded_points_L,op=MPI.SUM)
 	smesh_points_TOT =mpi_comm.allreduce(len(smesh.xyz),op=MPI.SUM)
-	if mpi_rank==0: print(f"total points={len(tpoints)} | total smesh={smesh_points_TOT} | total owned points= {owned_points_TOT} | owned points MAX={owned_points_MAX} | owned points MIN={owned_points_MIN}",flush=True)
+	if mpi_rank==0: print(f"total points={len(tpoints)} | total smesh={smesh_points_TOT} | total bounded points= {bounded_points_TOT} | bounded points MAX={bounded_points_MAX} | bounded points MIN={bounded_points_MIN}",flush=True)
 
 
-	count=0
-	for i in owned_points:
+	owned_points =[]
+	for bnodeId in bounded_points:
 		pyAlya.cr_start("iter_owned",0)
 
-		tpoint = tpoints[i]
+		tpoint = tpoints[bnodeId]
 	
-		mindist = 1e10
+		mindist   = 1e10
+		mindist_L = 1e10
 		tnodeId = -1
 		for ii in range(ball_iter):
 
@@ -139,38 +140,46 @@ def Interpolate(smesh,tpoints,sfields):
 			pyAlya.cr_stop("ball",0)
 			
 
-			if ssubset.shape[0] > 0: 
+			if ssubset.shape[0] >= 2: 													# I need at least two owned points to evaluate the local mesh charactristic lenght 
 				pyAlya.cr_start("point_finder",0)
 				found_L=1
-				for nodeId in ssubset:
+				for nodeId in ssubset:													#here the nearest owned node is found
 					node = smesh.xyz[nodeId,:]
 					dist= np.linalg.norm(tpoint-node)
 					if dist < mindist: 
 						mindist = dist
 						tnodeId = nodeId
 				pyAlya.cr_stop("point_finder",0)
+					
+				pyAlya.cr_start("char_length",0)
+				nnodeId = -1
+				nodeMin = smesh.xyz[tnodeId,:]
+				for nodeId in ssubset:													#here, the local mesh characteristic lenght is evaluated
+					if tnodeId != nodeId:
+						node = smesh.xyz[nodeId,:]
+						dist= np.linalg.norm(nodeMin-node)
+						if dist < mindist_L: 
+							mindist_L = dist
+							nnodeId = nodeId
+
+
+				pyAlya.cr_stop("char_length",0)
 				break
+		
+		if mindist/mindist_L < 1.25: 
+			tfield_L.append(sfields['VELOC'][tnodeId])
+			owned_points.append(bnodeId)
 
-		#if mindist > 1e-8: print(f"rank={mpi_rank} | mindist={mindist}")
-		if mindist > 1e-8: count=count+1
 
-		pyAlya.cr_start("data_append",0)
-		tfield_L.append(sfields['VELOC'][tnodeId])
 
-		#if np.linalg.norm(smesh.xyz[tnodeId]-sfields['VELOC'][tnodeId]) > 1e-5:
-		#	print('check=',np.linalg.norm(smesh.xyz[tnodeId]-sfields['VELOC'][tnodeId]),' rank=',mpi_rank,' punt=',smesh.xyz[tnodeId],' data=',sfields['VELOC'][tnodeId],flush=True)
-		pyAlya.cr_stop("data_append",0)
 		pyAlya.cr_stop("iter_owned",0)
-
-
-	print(f"rank={mpi_rank} | count of not 0 dist={count}")
-
-	mpi_comm.Barrier()
-	if mpi_rank==0: print('NO NHI HA CAP QUE NO DONI BE',flush=True)
-
+	
+	print("rank=",mpi_rank," num smesh points=",len(smesh.xyz)," num owned=",len(owned_points),flush=True)
+	
+	mpi_com.Barrier()
 	pyAlya.cr_start("gather",0)
 	tfield_G = mpi_comm.gather(tfield_L,root=0)
-	owner_list = mpi_comm.gather(owned_points,root=0)
+	owned_points_G = mpi_comm.gather(owned_points,root=0)
 	pyAlya.cr_stop("gather",0)
 
 	tfield =[]
@@ -180,8 +189,8 @@ def Interpolate(smesh,tpoints,sfields):
 
 		tfield = [0.0]*len(tpoints)
 
-		for ol,tf in zip(owner_list,tfield_G):
-			for id,value in zip(ol,tf):
+		for op,tf in zip(owned_points_G,tfield_G):
+			for id,value in zip(op,tf):
 				tfield[id] = value
 	pyAlya.cr_stop("write",0)
 

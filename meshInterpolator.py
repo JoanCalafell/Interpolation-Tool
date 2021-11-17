@@ -14,6 +14,9 @@ import mpi4py, numpy as np, struct
 mpi4py.rc.recv_mprobe = False
 from mpi4py import MPI
 
+from interp_utils import Write_par2seq
+from interp_utils import Bounding_Box
+
 mpi_comm = MPI.COMM_WORLD
 mpi_rank = mpi_comm.Get_rank()
 mpi_size = mpi_comm.Get_size()
@@ -28,109 +31,84 @@ if len(sys.argv)<6:
 #S stands for source
 #T stands for target
 
+
 SCASE_NAME = sys.argv[1]
 SBASE_DIR  = sys.argv[2]
 SDATA_ITE  = int(sys.argv[3])
 TFILE_NAME = sys.argv[4]
 TN_PART    = int(sys.argv[5])
 
-def Init_file(fname, dime=1):
-
-	binFile = open(fname, 'wb')
-	binFile.write((27093).to_bytes(8, 'little'))    # Magic Number
-	binFile.close()
-
-	asciiFile = open(fname, 'a')
-	asciiFile.write(('{:_<8}'.format('MPIAL00\0'))) # Format
-	asciiFile.write(('{:_<8}'.format('V000400\0'))) # Version
-	asciiFile.write(('{:_<8}'.format('XFIEL00\0')))      # Object
-	asciiFile.write(('{:_<8}'.format('VECTO00\0')))   # Dimension 
-	asciiFile.write(('{:_<8}'.format('NPOIN00\0')))   # Results On
-	asciiFile.write(('{:_<8}'.format('REAL000\0')))        # Type
-	asciiFile.write(('{:_<8}'.format('8BYTE00\0')))    # Size
-	asciiFile.write(('{:_<8}'.format('SEQUE00\0'))) # Seq/Paral
-	asciiFile.write(('{:_<8}'.format('NOFIL00\0'))) # Filter
-	asciiFile.write(('{:_<8}'.format('ASCEN00\0'))) # Sorting
-	asciiFile.write(('{:_<8}'.format('NOID000\0'))) # ID
-	asciiFile.write(('{:_<8}'.format('0000000\0'))) # Alignment
-	asciiFile.close()
-
-	binFile = open(fname, 'ab')
-	data = array('q', [dime, 0, 0, 1, 0, 1, -1])
-	data.tofile	(binFile)
-	time = array('d', [0.0])
-	time.tofile	(binFile)
-	binFile.close()
-
-	asciiFile = open(fname, 'a')
-	asciiFile.write(('{:_<8}'.format('0000000\0'))) # Alignment
-	asciiFile.write(('{:_<8}'.format('NONE000\0'))) # Option
-	asciiFile.write(('{:_<8}'.format('NONE000\0'))) # Option
-	asciiFile.write(('{:_<8}'.format('NONE000\0'))) # Option
-	asciiFile.write(('{:_<8}'.format('NONE000\0'))) # Option
-	asciiFile.write(('{:_<8}'.format('NONE000\0'))) # Option
-	asciiFile.write(('{:_<8}'.format('NONE000\0'))) # Option
-	asciiFile.write(('{:_<8}'.format('NONE000\0'))) # Option
-	asciiFile.write(('{:_<8}'.format('NONE000\0'))) # Option
-	asciiFile.write(('{:_<8}'.format('NONE000\0'))) # Option
-	asciiFile.write(('{:_<8}'.format('NONE000\0'))) # Option
-	asciiFile.close()
-
-def Append_to_file(fname, field):
-
-	appdNlines = len(field)
-
-	f = open(fname, 'rb+')
-	f.seek(14*8)
-	oldNlines = np.fromfile(f,count=1,dtype=np.int64)[0]
-	newNlines = appdNlines + oldNlines
-
-	f.seek(14*8)
-	newline=array('q',[newNlines])
-	newline.tofile(f)
-	f.close
-
-	f = open(fname, 'ab')
-
-	for i in range(appdNlines): 
-		line = field[i]
-		values = array('d',[line[0],line[1],line[2]])
-		values.tofile(f)
-	f.close
-
 def Interpolate(smesh,tpoints,sfields):
 
-	ball_iter = 1000
-	r_incr = 0.01
-	radius = 0.005
+	ball_iter = 100
+	#r_incr = 0.1
+	#radius = 0.5
 
-	tfield_L = []
+	r_incr = 1.0
+	radius = np.cbrt(np.nanmin(smesh._vmass))
+	#radius = np.cbrt(np.nanmin(smesh._vmass))
+	#print(smesh._vmass) DEMANAR A ARANU QUE ESTA DONANT AIXO!!! PQ NO SON ELS VOLUMS DELS ELEMENTS. HAURIEN DE SER TOTS IGUAL I NO HO SON.
+	#print(f"rank={mpi_rank} | radius={radius}")
+
+	tfield = []
 
 	mask = smesh.boundingBox.areinside(tpoints)
-	bounded_points = np.where(mask==True)[0]
+	old_bounded_points = np.where(mask==True)[0]
+	old_bounded_L = len(old_bounded_points)
+	old_bounded_MAX = mpi_comm.allreduce(old_bounded_L,op=MPI.MAX)
 
-	print("rank=",mpi_rank," num smesh points=",len(smesh.xyz)," num bounded=",len(bounded_points),flush=True)
+	if mpi_rank==0: print("generating BOUNDING BOX",flush=True)
+
+	pyAlya.cr_start("new_bound_box",0)
+	maxSize_L = np.cbrt(np.nanmax(smesh._vmass))
+	box = Bounding_Box(smesh.xyz)
+	box.discretize_by_minsize(smesh.xyz,maxSize_L)
+
+	bounded_index = box.areInside(tpoints)
+	pyAlya.cr_stop("new_bound_box",0)
+
 	mpi_comm.Barrier()
+	if mpi_rank==0: print("finishing BOUNDING BOX",flush=True)
 
-	bounded_points_L=len(bounded_points)
+	#print("bounded index=",bounded_index)
+
+	
+	#print("rank=",mpi_rank," num smesh points=",len(smesh.xyz)," new bounded=",len(bounded_index)," old bounded=",len(old_bounded_points),flush=True)
+	#mpi_comm.Barrier()
+
+	bounded_points_L=len(bounded_index)
 	bounded_points_MAX =mpi_comm.allreduce(bounded_points_L,op=MPI.MAX)
 	if mpi_rank==0: bounded_points_L=1e14
 	bounded_points_MIN =mpi_comm.allreduce(bounded_points_L,op=MPI.MIN)
 	if mpi_rank==0: bounded_points_L=0
 	bounded_points_TOT =mpi_comm.allreduce(bounded_points_L,op=MPI.SUM)
 	smesh_points_TOT =mpi_comm.allreduce(len(smesh.xyz),op=MPI.SUM)
-	if mpi_rank==0: print(f"total points={len(tpoints)} | total smesh={smesh_points_TOT} | total bounded points= {bounded_points_TOT} | bounded points MAX={bounded_points_MAX} | bounded points MIN={bounded_points_MIN}",flush=True)
+
+	real_points_L=len(smesh.xyz)
+	real_points_MAX = mpi_comm.allreduce(len(smesh.xyz),op=MPI.MAX)
+	if mpi_rank==0: real_points_L =1e14 
+	real_points_MIN = mpi_comm.allreduce(real_points_L,op=MPI.MIN) 
+	if mpi_rank==0: print(f"total points={len(tpoints)} | total smesh={smesh_points_TOT} | total bounded points= {bounded_points_TOT} | real max = {real_points_MAX} | bounded points MAX={bounded_points_MAX} | old bounded MAX={old_bounded_MAX} | diff={old_bounded_MAX-bounded_points_MAX} | real min={real_points_MIN} | bounded points MIN={bounded_points_MIN}",flush=True)
+
+	bounded_points_L=len(bounded_index)
+	if bounded_points_MAX==bounded_points_L: print(f"El rank amb mes bounded points es rank={mpi_rank}",flush=True)
+	real_points_L=len(smesh.xyz)
+	if real_points_MAX== len(smesh.xyz) : print(f"El rank amb mes points reals es rank={mpi_rank}",flush=True)
 
 
-	owned_points =[]
-	for bnodeId in bounded_points:
+	ownedIds =[]
+	for bnodeId in bounded_index:
 		pyAlya.cr_start("iter_owned",0)
 
 		tpoint = tpoints[bnodeId]
+
+		#if mpi_rank==1: print(f"punt target: {tpoint}")
 	
 		mindist   = 1e10
 		mindist_L = 1e10
 		tnodeId = -1
+		count=0
+		found = False
 		for ii in range(ball_iter):
 
 			pyAlya.cr_start("ball",0)
@@ -139,44 +117,47 @@ def Interpolate(smesh,tpoints,sfields):
 			ssubset = np.where(mask==True)[0] 
 			pyAlya.cr_stop("ball",0)
 			
-
 			if ssubset.shape[0] >= 2: 													# I need at least two owned points to evaluate the local mesh charactristic lenght 
 				pyAlya.cr_start("point_finder",0)
 				found_L=1
+				
+				#if mpi_rank==1: print(f"number of sphere iterations={ii} | sub-set shape={ssubset.shape[0]}")
+				
 				for nodeId in ssubset:													#here the nearest owned node is found
 					node = smesh.xyz[nodeId,:]
 					dist= np.linalg.norm(tpoint-node)
+					#if mpi_rank==1: print(f"node subset={node} | dist: {dist}")
 					if dist < mindist: 
 						mindist = dist
 						tnodeId = nodeId
 				pyAlya.cr_stop("point_finder",0)
 					
 				pyAlya.cr_start("char_length",0)
-				nnodeId = -1
 				nodeMin = smesh.xyz[tnodeId,:]
+				#if mpi_rank==1: print(f"mindist={mindist} | minnode: {nodeMin}")
 				for nodeId in ssubset:													#here, the local mesh characteristic lenght is evaluated
 					if tnodeId != nodeId:
 						node = smesh.xyz[nodeId,:]
 						dist= np.linalg.norm(nodeMin-node)
 						if dist < mindist_L: 
 							mindist_L = dist
-							nnodeId = nodeId
-
 
 				pyAlya.cr_stop("char_length",0)
+				found = True
 				break
 		
-		if mindist/mindist_L < 1.25: 
-			tfield_L.append(sfields['VELOC'][tnodeId])
-			owned_points.append(bnodeId)
-
-
+		if mindist/mindist_L < 0.99 and found: 
+			tfield.append(sfields['VELOC'][tnodeId])
+			ownedIds.append(bnodeId)
 
 		pyAlya.cr_stop("iter_owned",0)
 	
-	print("rank=",mpi_rank," num smesh points=",len(smesh.xyz)," num owned=",len(owned_points),flush=True)
-	
-	mpi_com.Barrier()
+	print("rank=",mpi_rank," num smesh points=",len(smesh.xyz)," num bounded=",len(bounded_index)," num owned=",len(ownedIds),' diff=', len(bounded_index,)-len(ownedIds),flush=True)
+
+	return ownedIds,tfield
+
+	'''
+	mpi_comm.Barrier()
 	pyAlya.cr_start("gather",0)
 	tfield_G = mpi_comm.gather(tfield_L,root=0)
 	owned_points_G = mpi_comm.gather(owned_points,root=0)
@@ -195,7 +176,7 @@ def Interpolate(smesh,tpoints,sfields):
 	pyAlya.cr_stop("write",0)
 
 	return tfield
-
+	'''
 
 iniTime = time.time()
 
@@ -227,8 +208,8 @@ npartitions = TN_PART
 
 chunk_size = header.npoints//npartitions
 
-if mpi_rank==0:
-	Init_file(SCASE_NAME+"-XFIEL.00000001.00000001.mpio.bin", 3)
+#if mpi_rank==0:
+#	Init_file(SCASE_NAME+"-XFIEL.00000001.00000001.mpio.bin", 3)
 
 for i in range(npartitions):
 	
@@ -242,21 +223,29 @@ for i in range(npartitions):
 	if mpi_rank==0:	print(f"opening chunk {i+1}/{npartitions}",flush=True)
 	tpoints, _ = pyAlya.io.AlyaMPIO_readByChunk(TFILE_NAME,rows2read,rows2skip)
 
-	if mpi_rank==0:	print(f"interpolating chunk {i+1}/{npartitions}",flush=True)
-	tfield = Interpolate(smesh,tpoints,sfields)
+	pyAlya.cr_start("interpolation_loop",0)
+	mpi_comm.Barrier()
+	if mpi_rank==0:	print("INTERPOLATING!!!!!!!!!!!!!!!",flush=True)
+	ownedIds,tfield = Interpolate(smesh,tpoints,sfields)
+	mpi_comm.Barrier()
+	if mpi_rank==0:	print("INTERPOLATION DONE!!!!!!!!!!!!!!",flush=True)
+	pyAlya.cr_stop("interpolation_loop",0)
 
-	pyAlya.cr_start("append_file",0)
+	pyAlya.cr_start("write_file",0)
+	if mpi_rank==0:	print("WRITING FILE!!!!!!!!!!!!!!!",flush=True)
+	Write_par2seq(SCASE_NAME+"-XFIEL.00000001.00000001.mpio.bin",len(tpoints),ownedIds,tfield)
+	mpi_comm.Barrier()
+	if mpi_rank==0:	print("FILE WRITTEN!!!!!!!!!!!!!!!",flush=True)
+	pyAlya.cr_stop("write_file",0)
+	
+	mpi_comm.Barrier()
 	if mpi_rank==0:
-		
 		end=time.time()
-
-		Append_to_file(SCASE_NAME+"-XFIEL.00000001.00000001.mpio.bin", tfield)
-		print('pyAlya intepolator [partition ',i+1,'/',npartitions,'] [chunk time:',"{:10.4f}".format((end-start)),'s] [Elapsed time:',"{:10.4f}".format(end-iniTime),'s]',flush=True)
-	pyAlya.cr_stop("append_file",0)
+		#Append_to_file(SCASE_NAME+"-XFIEL.00000001.00000001.mpio.bin", tfield)
+		print('pyAlya intepolator [Elapsed time:',"{:10.4f}".format(end-iniTime),'s]',flush=True)
 
 	pyAlya.cr_info()
 
 
 if mpi_rank==0:	print('INTERPOLATION DONE')
-
 

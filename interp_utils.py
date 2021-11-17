@@ -241,7 +241,7 @@ class Bounding_Box:
 
 					return self._isIn[idx]
 
-	def discretize_by_parts(self,nParti,nPartj,nPartk,points):
+	def discretize_by_parts(self,points,nParti,nPartj,nPartk):
 		
 		if not self._illDefined:
 			self._nParti = nParti

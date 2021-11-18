@@ -18,109 +18,6 @@ mpi_comm = MPI.COMM_WORLD
 mpi_rank = mpi_comm.Get_rank()
 mpi_size = mpi_comm.Get_size()
 
-def Init_file(fname,dime=1,dataset_len=0):
-
-	binFile = open(fname, 'wb')
-	binFile.write((27093).to_bytes(8, 'little'))    # Magic Number
-	binFile.close()
-
-	asciiFile = open(fname, 'a')
-	asciiFile.write(('{:_<8}'.format('MPIAL00\0'))) # Format
-	asciiFile.write(('{:_<8}'.format('V000400\0'))) # Version
-	asciiFile.write(('{:_<8}'.format('XFIEL00\0')))      # Object
-	asciiFile.write(('{:_<8}'.format('VECTO00\0')))   # Dimension 
-	asciiFile.write(('{:_<8}'.format('NPOIN00\0')))   # Results On
-	asciiFile.write(('{:_<8}'.format('REAL000\0')))        # Type
-	asciiFile.write(('{:_<8}'.format('8BYTE00\0')))    # Size
-	asciiFile.write(('{:_<8}'.format('SEQUE00\0'))) # Seq/Paral
-	asciiFile.write(('{:_<8}'.format('NOFIL00\0'))) # Filter
-	asciiFile.write(('{:_<8}'.format('ASCEN00\0'))) # Sorting
-	asciiFile.write(('{:_<8}'.format('NOID000\0'))) # ID
-	asciiFile.write(('{:_<8}'.format('0000000\0'))) # Alignment
-	asciiFile.close()
-
-	binFile = open(fname, 'ab')
-	data = array('q', [dime, dataset_len, 0, 1, 0, 1, -1])
-	data.tofile(binFile)
-	time = array('d', [0.0])
-	time.tofile(binFile)
-	binFile.close()
-
-	asciiFile = open(fname, 'a')
-	asciiFile.write(('{:_<8}'.format('0000000\0'))) # Alignment
-	asciiFile.write(('{:_<8}'.format('NONE000\0'))) # Option
-	asciiFile.write(('{:_<8}'.format('NONE000\0'))) # Option
-	asciiFile.write(('{:_<8}'.format('NONE000\0'))) # Option
-	asciiFile.write(('{:_<8}'.format('NONE000\0'))) # Option
-	asciiFile.write(('{:_<8}'.format('NONE000\0'))) # Option
-	asciiFile.write(('{:_<8}'.format('NONE000\0'))) # Option
-	asciiFile.write(('{:_<8}'.format('NONE000\0'))) # Option
-	asciiFile.write(('{:_<8}'.format('NONE000\0'))) # Option
-	asciiFile.write(('{:_<8}'.format('NONE000\0'))) # Option
-	asciiFile.write(('{:_<8}'.format('NONE000\0'))) # Option
-	asciiFile.close()
-
-	binFile = open(fname, 'ab')
-	data = array('d', [0.0]*dataset_len)
-	data.tofile(binFile)
-	binFile.close()
-
-def Write_par2seq(fname,dataset_len,glob_ids,field):
-
-	dime_L=0
-	if mpi_rank != 0: 
-		dime_L=field[0].shape[0]
-	dime=mpi_comm.allreduce(dime_L,op=MPI.MAX)
-	
-	if mpi_rank==0:	Init_file(fname,dime=dime,dataset_len=dataset_len)
-	mpi_comm.Barrier()
-	
-	header_offset=256
-	data_size=8*dime
-	f = open(fname, 'rb+')
-	'''
-	if mpi_rank==1:
-		id=glob_ids[10]
-		data=field[10]
-
-		data=np.array([1.0,2.0,3.0])
-		f.seek(header_offset+(id*data_size))
-		values = array('d',data)
-		values.tofile(f)
-
-		print("id=",id," data=",data)
-
-	'''
-	for gi,line in zip(glob_ids,field):
-		f.seek(header_offset+(gi*data_size))
-		values = array('d',line)
-		values.tofile(f)
-
-	f.close
-		
-def Append_to_file(fname, field):
-
-	appdNlines = len(field)
-
-	f = open(fname, 'rb+')
-	f.seek(14*8)
-	oldNlines = np.fromfile(f,count=1,dtype=np.int64)[0]
-	newNlines = appdNlines + oldNlines
-
-	f.seek(14*8)
-	newline=array('q',[newNlines])
-	newline.tofile(f)
-	f.close
-
-	f = open(fname, 'ab')
-
-	for i in range(appdNlines): 
-		line = field[i]
-		values = array('d',[line[0],line[1],line[2]])
-		values.tofile(f)
-	f.close
-
-
 class Bounding_Box:
 
 	def __init__(self,*args):
@@ -129,6 +26,7 @@ class Bounding_Box:
 			self._pmin = np.array([1e100,1e100,1e100])
 			self._pmax = np.array([-1e100,-1e100,-1e100])
 
+			#ill defined is used basically used for the rank 0 which tries to create a box without contents.
 			self._illDefined=False
 			self._box_from_points(args[0])
 
@@ -158,7 +56,6 @@ class Bounding_Box:
 		self._nPartk = 1
 
 	def __str__(self):
-
 		return f"pmin={self._pmin}\npmax={self._pmax}\npartitions i={self._nParti} j={self._nPartj} k={self._nPartk}"
 
 	@property
@@ -187,12 +84,11 @@ class Bounding_Box:
 				if p[1]>self._pmax[1]: self._pmax[1]=p[1]
 				if p[2]>self._pmax[2]: self._pmax[2]=p[2]
 
-		#print(f"rank={mpi_rank} is ill defined={self._illDefined}")
-
 	def _getIndex(self,i,j,k):
 
 		return i+self._nParti*j+self._nParti*self._nPartj*k
 
+	#protected method to evaluate whether a point is inside a subbox and to get the it corresponding index for the _isIn vector
 	def _isInside(self,point):
 
 		if np.isnan(point[0]) or self._illDefined:
@@ -200,12 +96,12 @@ class Bounding_Box:
 		else:
 			norm_position = np.array([(point[0]-self._pmin[0])/(self._pmax[0]-self._pmin[0]),(point[1]-self._pmin[1])/(self._pmax[1]-self._pmin[1]),(point[2]-self._pmin[2])/(self._pmax[2]-self._pmin[2])]) #normalizes position with box real dimensions
 
-			if norm_position[0]<0 or norm_position[0]>1 or norm_position[1]<0 or norm_position[1]>1 or norm_position[2]<0 or norm_position[2]>1: 
+			if norm_position[0]<0 or norm_position[0]>1 or norm_position[1]<0 or norm_position[1]>1 or norm_position[2]<0 or norm_position[2]>1: #point out of box
 				return False, -1
 			else:
-				if self._nParti==1 and self._nPartj==1 and self._nPartk==1 : return True, -1
-				else:										
-					i = int(norm_position[0]*self._nParti) #Determines the intdex position within the discrete box from the normalized coordinate
+				if self._nParti==1 and self._nPartj==1 and self._nPartk==1 : return True, -1 	#point in box with a single partition
+				else: 																			#point in a discretized box										
+					i = int(norm_position[0]*self._nParti) 										#determines the ijk index position within the discrete box from the normalized coordinate
 					j = int(norm_position[1]*self._nPartj)
 					k = int(norm_position[2]*self._nPartk)
 
@@ -217,6 +113,7 @@ class Bounding_Box:
 
 					return True, idx
 
+	#public method to evaluate whether a point is inside a box or not
 	def isInside(self,point):
 
 		if np.isnan(point[0]) or self._illDefined:
@@ -229,7 +126,7 @@ class Bounding_Box:
 			else:
 				if self._nParti==1 and self._nPartj==1 and self._nPartk==1: return True
 				else:
-					i = int(norm_position[0]*self._nParti) #Determines the intdex position within the discrete box from the normalized coordinate
+					i = int(norm_position[0]*self._nParti) 
 					j = int(norm_position[1]*self._nPartj)
 					k = int(norm_position[2]*self._nPartk)
 
@@ -241,6 +138,7 @@ class Bounding_Box:
 
 					return self._isIn[idx]
 
+	#discretizes the bounding box with a custom number of partitions for each direction
 	def discretize_by_parts(self,points,nParti,nPartj,nPartk):
 		
 		if not self._illDefined:
@@ -255,6 +153,7 @@ class Bounding_Box:
 				if isInside: self._isIn[idx] = True
 
 
+	#discretizes the bounding box with subboxes of a custom minimum size. if only one size is given, it is applied for all directions.
 	def discretize_by_minsize(self,points,minsizeX,minsizeY=-1,minsizeZ=-1):
 
 		if not self._illDefined:
@@ -286,12 +185,7 @@ class Bounding_Box:
 				isInside ,idx = self._isInside(point)
 				if isInside: self._isIn[idx] = True
 
-			'''
-			if mpi_rank==3:
-				for idx,i in enumerate(self._isIn):
-					print(f"idx={idx} value={i}")
-			'''
-
+	#returns a list of the index of points that are inside the bounding box. The indexes are referred to the original input points list. 
 	def areInside(self,points):
 
 		idxPoints=[]
@@ -300,14 +194,97 @@ class Bounding_Box:
 
 			for idx,p in enumerate(points):
 
-				#print("idx=",idx," point=",p)
-
 				isInside = self.isInside(p)
 
 				if isInside:
 					idxPoints.append(idx)
 
 		return idxPoints
+
+
+def Interpolate(smesh,tpoints,sfields):
+
+	#initializing ball search parameters
+	radius = np.cbrt(np.nanmin(smesh._vmass)) #initial search ball radius equal to partition's smallest element size
+	r_incr = 1.0 #the ball radius doubles at each iteration
+	ball_max_iter = 100 #this value assumes that the size ratio between the largest and the smallest element within a partition is less than 100. If this assumption is false, it may cause that some target nodes would not find their source countepart, making their inteprolated value to remain zero.
+	
+	#Computing the discretized bounding box of the source mesh
+	pyAlya.cr_start("bound_box",0)
+	maxSize_L = np.cbrt(np.nanmax(smesh._vmass))
+	box = Bounding_Box(smesh.xyz)
+	box.discretize_by_minsize(smesh.xyz,maxSize_L)
+
+	#Computing the target mesh points contained in the source mesh's bounding box
+	boundedIds = box.areInside(tpoints)
+	pyAlya.cr_stop("bound_box",0)
+
+	#Computing bounding box efficiency parameters
+	bounded_points_L=len(boundedIds)
+	bounded_points_MAX =mpi_comm.allreduce(bounded_points_L,op=MPI.MAX)
+	if mpi_rank==0: bounded_points_L=1e14
+	bounded_points_MIN =mpi_comm.allreduce(bounded_points_L,op=MPI.MIN)
+
+	real_points_L=len(smesh.xyz)
+	real_points_MAX = mpi_comm.allreduce(len(smesh.xyz),op=MPI.MAX)
+	if mpi_rank==0: real_points_L =1e14 
+	real_points_MIN = mpi_comm.allreduce(real_points_L,op=MPI.MIN) 
+	if mpi_rank==0: print(f"pyAlya Interpolator: source points MAX= {real_points_MAX} | bounded points MAX={bounded_points_MAX} | diff={bounded_points_MAX-real_points_MAX} | source points MIN={real_points_MIN} | bounded points MIN={bounded_points_MIN}",flush=True)
+
+	#Interpolation process
+	tfield = []
+	ownedIds =[]
+	#loop over all the target nodes contained in the source bounding box
+	for bnodeId in boundedIds:
+		pyAlya.cr_start("iter_owned",0)
+
+		tpoint = tpoints[bnodeId]
+
+		mindist     = 1e10
+		locGridSize = 1e10
+		tnodeId     = -1
+		for ii in range(ball_max_iter): #loop over a growing shpere to determine the target point's closest source nodes.
+
+			pyAlya.cr_start("ball",0)
+			ball = pyAlya.Geom.Ball(pyAlya.Geom.Point.from_array(tpoint),(1.+r_incr*ii)*radius)
+			mask = ball.areinside(smesh.xyz)
+			ssubset = np.where(mask==True)[0] #subset of source nodes within the sphere centered in the target point
+			pyAlya.cr_stop("ball",0)
+			
+			
+			if ssubset.shape[0] >= 2: #At least two close nodes in the subset are required to evaluate the source grid local size 												 
+				pyAlya.cr_start("point_finder",0)
+				
+				for nodeId in ssubset: #loop to determine the source node with minimum distance to the target node. The search is performed only within the sphere subset 
+					node = smesh.xyz[nodeId,:]
+					dist= np.linalg.norm(tpoint-node)
+					
+					if dist < mindist: 
+						mindist = dist
+						tnodeId = nodeId
+				pyAlya.cr_stop("point_finder",0)
+					
+				pyAlya.cr_start("char_length",0)
+				nodeMin = smesh.xyz[tnodeId,:]
+				for nnodeId in ssubset: # evaluation of the source grid local size: minimum distance between the final source node and its neighbours in the subset
+					if tnodeId != nnodeId:
+						node = smesh.xyz[nnodeId,:]
+						dist= np.linalg.norm(nodeMin-node)
+						if dist < locGridSize: 
+							locGridSize = dist
+				pyAlya.cr_stop("char_length",0)
+
+				break
+		
+		if mindist/locGridSize < 0.99: #if the distance between the source and the target node is larger than the local grid size, the node is discarded since it means that is out of the source element and thus, out of the owned domain. Otherwise, it is considered an owned node. 
+			tfield.append(sfields['VELOC'][tnodeId])
+			ownedIds.append(bnodeId)
+
+		pyAlya.cr_stop("iter_owned",0)
+	
+	print("pyAlya interpolator: rank=",mpi_rank,"num source points=",len(smesh.xyz)," num of target bounded points=",len(boundedIds)," num of target owned points=",len(ownedIds),flush=True)
+
+	return ownedIds,tfield
 
 
 

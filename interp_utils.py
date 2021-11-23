@@ -3,6 +3,7 @@
 from __future__ import print_function, division
 
 import numpy as np
+import math
 from array import array
 import time
 
@@ -284,18 +285,62 @@ def Interpolate(smesh,tpoints,sfields):
 	
 	print("pyAlya interpolator: rank=",mpi_rank,"num source points=",len(smesh.xyz)," num of target bounded points=",len(boundedIds)," num of target owned points=",len(ownedIds),flush=True)
 
-	return ownedIds,tfield
+	return ownedIds,np.array(tfield)
 
 
 
+def rotate_vector(vector,gamma,beta,alpha,rotc_x=0.0,rotc_y=0.0,rotc_z=0.0):
 
+	# https://en.wikipedia.org/wiki/Rotation_matrix
+	R = np.ndarray(shape=(3,3))
 
+	alpha = math.pi*alpha/180.0
+	beta  = math.pi*beta/180.0
+	gamma = math.pi*gamma/180.0
 
+	R[0][0] = math.cos(alpha)*math.cos(beta)
+	R[1][0] = math.cos(alpha)*math.sin(beta)*math.sin(gamma)-math.sin(alpha)*math.cos(gamma)
+	R[2][0] = math.cos(alpha)*math.sin(beta)*math.cos(gamma)+math.sin(alpha)*math.sin(gamma)
+	R[0][1] = math.sin(alpha)*math.cos(beta)
+	R[1][1] = math.sin(alpha)*math.sin(beta)*math.sin(gamma)+math.cos(alpha)*math.cos(gamma)
+	R[2][1] = math.sin(alpha)*math.sin(beta)*math.cos(gamma)-math.cos(alpha)*math.sin(gamma)
+	R[0][2] = -math.sin(beta)
+	R[1][2] = math.cos(beta)*math.sin(gamma)
+	R[2][2] = math.cos(beta)*math.cos(gamma)
 
+	rotc=np.array([rotc_x,rotc_y,rotc_z])
+	vector = vector-rotc
+	vector = np.dot(vector,R)
+	vector = vector+rotc
 
+	return vector
 
+def rotate_field(field,gamma,beta,alpha,rotc_x=0.0,rotc_y=0.0,rotc_z=0.0):
 
+	output=[]
+	R = np.ndarray(shape=(3,3))
 
+	alpha = math.pi*alpha/180.0
+	beta  = math.pi*beta/180.0	
+	gamma = math.pi*gamma/180.0
 
+	R[0][0] = math.cos(alpha)*math.cos(beta)
+	R[1][0] = math.cos(alpha)*math.sin(beta)*math.sin(gamma)-math.sin(alpha)*math.cos(gamma)
+	R[2][0] = math.cos(alpha)*math.sin(beta)*math.cos(gamma)+math.sin(alpha)*math.sin(gamma)
+	R[0][1] = math.sin(alpha)*math.cos(beta)
+	R[1][1] = math.sin(alpha)*math.sin(beta)*math.sin(gamma)+math.cos(alpha)*math.cos(gamma)
+	R[2][1] = math.sin(alpha)*math.sin(beta)*math.cos(gamma)-math.cos(alpha)*math.sin(gamma)
+	R[0][2] = -math.sin(beta)
+	R[1][2] = math.cos(beta)*math.sin(gamma)
+	R[2][2] = math.cos(beta)*math.cos(gamma)
+
+	rotc=np.array([rotc_x,rotc_y,rotc_z])
+	for v in field: 
+		vector = v-rotc
+		vector = np.dot(vector,R)
+		vector = vector+rotc
+		output.append(vector)
+
+	return np.array(output)
 
 

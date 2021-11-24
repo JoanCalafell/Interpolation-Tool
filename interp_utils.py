@@ -95,7 +95,9 @@ class Bounding_Box:
 		if np.isnan(point[0]) or self._illDefined:
 			return False, -1
 		else:
-			norm_position = np.array([(point[0]-self._pmin[0])/(self._pmax[0]-self._pmin[0]),(point[1]-self._pmin[1])/(self._pmax[1]-self._pmin[1]),(point[2]-self._pmin[2])/(self._pmax[2]-self._pmin[2])]) #normalizes position with box real dimensions
+			norm_position = np.array([round((point[0]-self._pmin[0])/(self._pmax[0]-self._pmin[0]),8) \
+						 ,round((point[1]-self._pmin[1])/(self._pmax[1]-self._pmin[1]),8) \
+						 ,round((point[2]-self._pmin[2])/(self._pmax[2]-self._pmin[2]),8)]) #normalizes position with box real dimensions
 
 			if norm_position[0]<0 or norm_position[0]>1 or norm_position[1]<0 or norm_position[1]>1 or norm_position[2]<0 or norm_position[2]>1: #point out of box
 				return False, -1
@@ -120,7 +122,11 @@ class Bounding_Box:
 		if np.isnan(point[0]) or self._illDefined:
 			return False
 		else:
-			norm_position = np.array([(point[0]-self._pmin[0])/(self._pmax[0]-self._pmin[0]),(point[1]-self._pmin[1])/(self._pmax[1]-self._pmin[1]),(point[2]-self._pmin[2])/(self._pmax[2]-self._pmin[2])])
+			norm_position = np.array([round((point[0]-self._pmin[0])/(self._pmax[0]-self._pmin[0]),8) \
+						 ,round((point[1]-self._pmin[1])/(self._pmax[1]-self._pmin[1]),8) \
+						 ,round((point[2]-self._pmin[2])/(self._pmax[2]-self._pmin[2]),8)]) 
+
+
 
 			if norm_position[0]<0 or norm_position[0]>1 or norm_position[1]<0 or norm_position[1]>1 or norm_position[2]<0 or norm_position[2]>1: 
 				return False
@@ -317,6 +323,7 @@ def rotate_vector(vector,gamma,beta,alpha,rotc_x=0.0,rotc_y=0.0,rotc_z=0.0):
 
 def rotate_field(field,gamma,beta,alpha,rotc_x=0.0,rotc_y=0.0,rotc_z=0.0):
 
+	pyAlya.pprint(0,f"rotating field: angle={gamma},{beta},{alpha} | rot center={rotc_x},{rotc_y},{rotc_z}")
 	output=[]
 	R = np.ndarray(shape=(3,3))
 

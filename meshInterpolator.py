@@ -52,9 +52,15 @@ roty = 0.0
 rotz = 0.0
 
 if len(sys.argv)==11:
+	alpha = float(sys.argv[5])
+	beta  = float(sys.argv[6])
+	gamma = float(sys.argv[7])
+	
 	rotx = float(sys.argv[8])
 	roty = float(sys.argv[9])
 	rotz = float(sys.argv[10])
+
+	isRotate = True
 
 iniTime = time.time()
 

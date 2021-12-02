@@ -69,8 +69,10 @@ def Write_par2seq(fname,dataset_len,glob_ids,field):
 
 	dime_L=0
 	if mpi_rank != 0: 
-		dime_L=field[0].shape[0]
+		if np.any(field): dime_L=field[0].shape[0]
+		else: dime_L=0
 	dime=mpi_comm.allreduce(dime_L,op=MPI.MAX)
+	if dime ==0: raise ValueError('A field with with dimension 0 cannot be written') 
 	
 	if mpi_rank==0:	Init_file(fname,dime=dime,dataset_len=dataset_len)
 	mpi_comm.Barrier()

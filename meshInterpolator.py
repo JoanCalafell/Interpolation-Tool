@@ -84,7 +84,7 @@ if isRotate: sfields['VELOC'] = rotate_field(sfields['VELOC'],alpha,beta,gamma)
 #OPENING TARGET MESH
 
 mpi_comm.Barrier()
-if mpi_rank==0: print('pyAlya interpolatro: OPENING TARGET MESH',flush=True)   
+if mpi_rank==0: print('pyAlya interpolator: OPENING TARGET MESH',flush=True)   
 header = pyAlya.io.AlyaMPIO_header.read(TFILE_NAME)
 tpoints, _ = pyAlya.io.AlyaMPIO_readByChunk(TFILE_NAME,header.npoints,0)
 

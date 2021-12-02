@@ -290,7 +290,6 @@ def Interpolate(smesh,tpoints,sfields):
 		pyAlya.cr_stop("iter_owned",0)
 	
 	print("pyAlya interpolator: rank=",mpi_rank,"num source points=",len(smesh.xyz)," num of target bounded points=",len(boundedIds)," num of target owned points=",len(ownedIds),flush=True)
-
 	return ownedIds,np.array(tfield)
 
 

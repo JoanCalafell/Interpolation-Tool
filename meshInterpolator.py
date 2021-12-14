@@ -5,6 +5,7 @@ from __future__ import print_function, division
 import numpy as np
 from array import array
 import time
+import os.path
 
 import pyAlya
 
@@ -15,7 +16,7 @@ mpi4py.rc.recv_mprobe = False
 from mpi4py import MPI
 
 from io_utils import Write_par2seq
-from interp_utils import Interpolate,rotate_field,Bounding_Box
+from interp_utils import Interpolate,rotate_field,periodic_condition
 
 mpi_comm = MPI.COMM_WORLD
 mpi_rank = mpi_comm.Get_rank()
@@ -94,11 +95,22 @@ pyAlya.cr_start("interpolation_loop",0)
 ownedIds,tfield = Interpolate(smesh,tpoints,sfields)
 pyAlya.cr_stop("interpolation_loop",0)
 
+#WRITTING FILE
+
 pyAlya.cr_start("write_file",0)
 Write_par2seq(SCASE_NAME+"-XFIEL.00000001.00000001.mpio.bin",len(tpoints),ownedIds,tfield)
+
+#PERIODIC CONDITION
+
+mpi_comm.Barrier()
+TLMAST_FILE=TFILE_NAME.replace("COORD","LMAST")
+if os.path.isfile(TLMAST_FILE):
+	periodic_condition(SCASE_NAME,TLMAST_FILE)
+
 mpi_comm.Barrier()
 end=time.time()
 if mpi_rank==0:	print("pyAlya interpolator: FILE WRITTEN. [Elapsed time:","{:10.4f}".format(end-iniTime),"s]",flush=True)
 pyAlya.cr_stop("write_file",0)
 
 pyAlya.cr_info()
+	

@@ -5,7 +5,9 @@ from __future__ import print_function, division
 import numpy as np
 import math
 from array import array
+import struct 
 import time
+import string
 
 import pyAlya
 
@@ -349,4 +351,35 @@ def rotate_field(field,gamma,beta,alpha,rotc_x=0.0,rotc_y=0.0,rotc_z=0.0):
 
 	return np.array(output)
 
+def periodic_condition(SCASE_NAME,TLMAST_FILE):
+		
+	if mpi_rank==0: print('pyAlya interpolator: OPENING TARGET MESH PERIODIC DATA',flush=True)   
+	header = pyAlya.io.AlyaMPIO_header.read(TLMAST_FILE)
+	LMAST, _ = pyAlya.io.AlyaMPIO_readByChunk(TLMAST_FILE,header.npoints,0)
 
+	if mpi_rank==0: 
+		TFILE_NAME="./"+SCASE_NAME+"-XFIEL.00000001.00000001.mpio.bin"
+		file = open(TFILE_NAME,'rb+')
+		file.seek(13*8)
+		ndims = np.fromfile(file,count=1,dtype=np.int64)[0]
+		file.seek(14*8)
+		npoints = np.fromfile(file,count=1,dtype=np.int64)[0]
+
+		perLink={}
+		for idx,master in enumerate(LMAST):
+			if master !=0:
+				perLink[idx] = master-1
+		
+		header_offset = 256
+		data_size     = 8*ndims
+
+		for slaveID in range(npoints):
+
+			if slaveID in perLink:
+				
+				file.seek(header_offset+data_size*(perLink[slaveID]))
+				master = array('d',file.read(data_size))
+				file.seek(header_offset+data_size*slaveID)
+				master.tofile(file)
+
+		file.close

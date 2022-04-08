@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from __future__ import print_function, division
+from tkinter import W
 
 import numpy as np
 from array import array
@@ -15,7 +16,7 @@ import mpi4py, numpy as np, struct
 mpi4py.rc.recv_mprobe = False
 from mpi4py import MPI
 
-from io_utils import Write_par2seq
+from io_utils import Write_par2seq,Write_par2seq_fast
 from interp_utils import Interpolate,rotate_field,periodic_condition
 
 mpi_comm = MPI.COMM_WORLD
@@ -98,7 +99,7 @@ pyAlya.cr_stop("interpolation_loop",0)
 #WRITTING FILE
 
 pyAlya.cr_start("write_file",0)
-Write_par2seq(SCASE_NAME+"-XFIEL.00000001.00000001.mpio.bin",len(tpoints),ownedIds,tfield)
+Write_par2seq_fast(SCASE_NAME+"-XFIEL.00000001.00000001.mpio.bin",len(tpoints),ownedIds,tfield)
 
 #PERIODIC CONDITION
 

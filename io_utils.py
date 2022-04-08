@@ -60,12 +60,12 @@ def Init_file(fname,dime=1,dataset_len=0):
 	asciiFile.write(('{:_<8}'.format('NONE000\0'))) # Option
 	asciiFile.close()
 
+def Write_par2seq(fname,dataset_len,glob_ids,field):
+
 	binFile = open(fname, 'ab')
 	data = array('d', [0.0]*dataset_len)
 	data.tofile(binFile)
 	binFile.close()
-
-def Write_par2seq(fname,dataset_len,glob_ids,field):
 
 	dime_L=0
 	if mpi_rank != 0: 
@@ -110,6 +110,40 @@ def Append_to_file(fname, field):
 	f.close
 
 
+def Write_par2seq_fast(fname,dataset_len,gids_L,field_L):
+
+	dime_L=0
+	if mpi_rank != 0: 
+		if np.any(field_L): dime_L=field_L[0].shape[0]
+		else: dime_L=0
+	dime=mpi_comm.allreduce(dime_L,op=MPI.MAX)
+	if dime ==0: raise ValueError('A field with with dimension 0 cannot be written') 
+
+	if mpi_rank ==0: print ("Gathering data to rank 0")
+	gids_G = mpi_comm.gather(gids_L,root=0)
+	field_G = mpi_comm.gather(field_L,root=0)
+	mpi_comm.Barrier()
+	if mpi_rank ==0: print ("Data revcived by rank 0")
+
+	if mpi_rank==0:
+
+		data = np.zeros((dataset_len,dime))
+
+		print ("merging data")
+		for i in range(mpi_size):
+			gids=gids_G[i]
+			field=field_G[i]
+			for gid, f in zip(gids,field): 
+				data[gid]= f
+		print ("data merged")
+
+		Init_file(fname,dime=dime,dataset_len=dataset_len)	
+
+		binFile = open(fname, 'ab')
+		print ("writing data")
+		np.asarray(data).tofile(binFile)
+		binFile.close()
+		print ("File written")
 
 
 

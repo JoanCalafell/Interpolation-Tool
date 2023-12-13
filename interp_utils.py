@@ -252,6 +252,7 @@ def Interpolate(smesh,tpoints,sfields):
 		mindist     = 1e10
 		locGridSize = 1e10
 		tnodeId     = -1
+		isFound     = False
 		for ii in range(ball_max_iter): #loop over a growing shpere to determine the target point's closest source nodes.
 
 			pyAlya.cr_start("ball",0)
@@ -263,7 +264,8 @@ def Interpolate(smesh,tpoints,sfields):
 			
 			if ssubset.shape[0] >= 2: #At least two close nodes in the subset are required to evaluate the source grid local size 												 
 				pyAlya.cr_start("point_finder",0)
-				
+
+				isFound = True	
 				for nodeId in ssubset: #loop to determine the source node with minimum distance to the target node. The search is performed only within the sphere subset 
 					node = smesh.xyz[nodeId,:]
 					dist= np.linalg.norm(tpoint-node)
@@ -285,7 +287,7 @@ def Interpolate(smesh,tpoints,sfields):
 
 				break
 		
-		if mindist/locGridSize < 0.99: #if the distance between the source and the target node is larger than the local grid size, the node is discarded since it means that is out of the source element and thus, out of the owned domain. Otherwise, it is considered an owned node. 
+		if mindist/locGridSize < 10.0 and isFound: #if the distance between the source and the target node is larger than the local grid size, the node is discarded since it means that is out of the source element and thus, out of the owned domain. Otherwise, it is considered an owned node. 
 			tfield.append(sfields['VELOC'][tnodeId])
 			ownedIds.append(bnodeId)
 
